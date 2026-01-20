@@ -8,7 +8,7 @@ const destinationRouter = express.Router();
 destinationRouter.post("/create" ,  upload.array("images") , createDestination)
 destinationRouter.get("/get-all" , getDestinations)
 destinationRouter.get("/search"  , searchDestinations)
-destinationRouter.put("/update/:id", updateDestination)
+destinationRouter.put("/update/:id" ,  upload.array("images")  , updateDestination)
 destinationRouter.delete("/delete/:id" , deleteDestination)
 
 export default destinationRouter;

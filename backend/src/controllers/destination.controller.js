@@ -83,7 +83,20 @@ export const updateDestination = async (req, res, next) => {
   console.log(req.params);
   console.log(req.body);
   const { id } = req.params;
-  const { name, country, region, description, best_season } = req.body;
+  const { name, country, region, keepImages , description, best_season } = req.body;
+
+  let safeImages;
+  const files = req.files;
+  if (!files || files.length === 0) {
+    console.log("No images to upload on cloudinary")
+    safeImages = keepImages;
+  } else {
+    const cloudinaryResults = await uploadMultipleToCloudinary(files);
+    const images = cloudinaryResults.map((result) => result.url);
+    const imagesJSON = JSON.stringify(images);
+    const newImages = keepImages + imagesJSON;
+    safeImages = JSON.stringify(newImages);
+  }
 
   try {
     const result = await pool.query(
@@ -93,8 +106,9 @@ export const updateDestination = async (req, res, next) => {
            region = COALESCE($3, region),
            description = COALESCE($4, description),
            best_season = COALESCE($5, best_season),
+           images = COALESCE($6, images),
            updated_at = NOW()
-       WHERE id=$6
+       WHERE id=$7
        RETURNING *`,
       [
         name,
@@ -102,6 +116,7 @@ export const updateDestination = async (req, res, next) => {
         region || null,
         description || null,
         best_season || null,
+        safeImages,
         id || null,
       ],
     );
@@ -122,6 +137,7 @@ export const updateDestination = async (req, res, next) => {
     return next(new errorHandler("Error while updating destination", 500));
   }
 };
+
 
 export const searchDestinations = async (req, res , next) => {
   console.log("req is coming")

@@ -6,9 +6,81 @@ import { AiOutlinePlusCircle } from "react-icons/ai";
 import { RxCross1 } from "react-icons/rx";
 import { toast } from "react-toastify";
 import { Swiper, SwiperSlide } from "swiper/react";
-import "swiper/css";
+import SwiperCore from "swiper";
+import { Navigation } from "swiper/modules";
+import "swiper/css/bundle";
 
 const TourCard = ({ tour }) => {
+  SwiperCore.use([Navigation]);
+  // safe parser: returns an array of strings (image URLs)
+  function parseJsonArrayField(field) {
+    if (!field && field !== "") return []; // null/undefined -> empty
+
+    // already an array
+    if (Array.isArray(field)) return field.map(String);
+
+    // only accept strings from here
+    if (typeof field !== "string") return [];
+
+    const trimmed = field.trim();
+    if (trimmed === "") return [];
+
+    // 1) try normal JSON.parse
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map(String);
+      if (parsed && typeof parsed === "string") return [String(parsed)];
+    } catch (e) {
+      // ignore parse error and try recovery below
+    }
+
+    // 2) try to extract JSON arrays if multiple were concatenated like: "[] []"
+    const arrMatches = [];
+    const re = /\[[^\]]*]/g; // find [...], non-greedy-ish
+    let m;
+    while ((m = re.exec(trimmed)) !== null) {
+      try {
+        const p = JSON.parse(m[0]);
+        if (Array.isArray(p)) arrMatches.push(...p.map(String));
+      } catch (err) {
+        // skip bad chunk
+      }
+    }
+    if (arrMatches.length) {
+      // dedupe and return
+      return Array.from(new Set(arrMatches));
+    }
+
+    // 3) fallback: attempt to split simple comma-separated string of URLs
+    const split = trimmed
+      .split(/\s*,\s*/)
+      .map((s) => s.replace(/^["']|["']$/g, "").trim())
+      .filter(Boolean);
+
+    // dedupe and return
+    return Array.from(new Set(split));
+  }
+
+  const parsedImages = parseJsonArrayField(tour?.images);
+  const [existingImages, setExistingImages] = useState(parsedImages);
+  const [newImages, setNewImages] = useState([]); 
+  useEffect(() => {
+    setExistingImages(parseJsonArrayField(tour?.images));
+    setNewImages([]);
+  }, [tour]);
+
+  const removeExistingImage = (url) => {
+    setExistingImages((prev) => prev.filter((u) => u !== url));
+  };
+
+  const handleNewFiles = (fileList) => {
+    setNewImages((prev) => [...prev, ...Array.from(fileList)]);
+  };
+
+  const removeNewImage = (index) => {
+    setNewImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const [openUpdate, setOpenUpdate] = useState(false);
 
   const [title, setTitle] = useState(tour?.title || "");
@@ -96,23 +168,33 @@ const TourCard = ({ tour }) => {
 
     setLoading(true);
     try {
-      const data = {
-        title,
-        price: Number(price),
-        duration_day: Number(durationDays),
-        max_group_size: Number(maxGroupSize),
-        itinerary: JSON.stringify(itinerary || []),
-        inclusions: JSON.stringify(inclusions || []),
-        exclusions: JSON.stringify(exclusions || []),
-      };
+      const formData = new FormData();
+
+      formData.append("title", title);
+      formData.append("price", Number(price));
+      formData.append("duration_days", Number(durationDays)); 
+      if (maxGroupSize) formData.append("max_group_size", Number(maxGroupSize));
+
+      formData.append("itinerary", JSON.stringify(itinerary || []));
+      formData.append("inclusions", JSON.stringify(inclusions || []));
+      formData.append("exclusions", JSON.stringify(exclusions || []));
+
+      formData.append("keepImages", JSON.stringify(existingImages || []));
+
+      newImages && newImages.forEach((file) => {
+        formData.append("images", file);
+      });
 
       const res = await axios.put(
         `${process.env.NEXT_PUBLIC_SERVER_URL}/tour/update/${tour?.id}`,
-        data,
+        formData,
+        {
+          withCredentials: true,
+        },
       );
 
       if (res.data?.success) {
-        toast.success(res.data.message || "Tor  updated");
+        toast.success(res.data.message || "Tour updated");
         setOpenUpdate(false);
         window.location.reload();
       } else {
@@ -154,36 +236,24 @@ const TourCard = ({ tour }) => {
   };
 
   return (
-    <div className="rounded-3xl bg-[#f5f5f5] p-3 flex flex-col w-72 pb-4 hover:shadow-lg transition-shadow duration-300 h-fit justify-between">
+    <div className="rounded-3xl bg-[#f5f5f5] p-3 flex flex-col w-72 pb-4 hover:shadow-lg transition-shadow duration-300 h-125 justify-between">
       <div className="flex flex-col gap-y-3">
         <div className="w-full h-44 overflow-hidden rounded-2xl bg-gray-100">
-          <Swiper
-            spaceBetween={50}
-            slidesPerView={3}
-            onSlideChange={() => console.log("slide change")}
-            onSwiper={(swiper) => console.log(swiper)}
-          >
-            {
-              tour?.images && tour?.images.map((image) => (
-
-                <SwiperSlide>
-                  <img src={image} alt="tour" />
+          {/* Slider */}
+          <Swiper navigation={true}>
+            {parsedImages &&
+              parsedImages.map((image) => (
+                <SwiperSlide key={image}>
+                  <div
+                    className="h-44"
+                    style={{
+                      background: `url(${image}) center no-repeat`,
+                      backgroundSize: "cover",
+                    }}
+                  ></div>
                 </SwiperSlide>
-              ))
-            }
-            ...
+              ))}
           </Swiper>
-          <img
-            className="w-full h-full object-cover"
-            src={
-              Array.isArray(tour?.images)
-                ? tour.images[0]
-                : tour?.images
-                  ? JSON.parse(tour.images || "[]")[0] || ""
-                  : ""
-            }
-            alt={tour?.title || "tour image"}
-          />
         </div>
 
         <h1 className="text-lg font-semibold text-black line-clamp-1">
@@ -271,7 +341,7 @@ const TourCard = ({ tour }) => {
       </div>
 
       {openUpdate && (
-        <div className="absolute flex justify-center items-center w-full h-screen bg-[#0000005f] top-0 left-0">
+        <div className="absolute flex z-100 justify-center items-center w-full h-screen bg-[#0000005f] top-0 left-0">
           <div className="w-[90%] md:w-[50%] h-[90%] bg-white shadow rounded-sm pb-4 p-3 py-5 overflow-y-scroll relative">
             <div
               className="absolute top-4 right-4"
@@ -439,6 +509,65 @@ const TourCard = ({ tour }) => {
               </div>
 
               <br />
+
+              {/* Images */}
+              <div>
+                <label>Images</label>
+
+                <div className="flex gap-3 flex-wrap mt-2">
+                  {existingImages.map((url, idx) => (
+                    <div key={url} className="relative">
+                      <img
+                        src={url}
+                        alt={`img-${idx}`}
+                        className="w-24 h-24 object-cover rounded"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeExistingImage(url)}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 text-xs flex items-center justify-center"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+
+                  {newImages.map((file, idx) => (
+                    <div key={idx} className="relative">
+                      <img
+                        src={URL.createObjectURL(file)}
+                        alt={`new-${idx}`}
+                        className="w-24 h-24 object-cover rounded"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeNewImage(idx)}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 text-xs flex items-center justify-center"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* file input */}
+                <input
+                  id={`newImages-${tour?.id}`}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => handleNewFiles(e.target.files)}
+                />
+                <div className="mt-2">
+                  <label
+                    htmlFor={`newImages-${tour?.id}`}
+                    className="cursor-pointer inline-flex items-center gap-2 text-sm text-gray-700"
+                  >
+                    <AiOutlinePlusCircle /> Add images
+                  </label>
+                </div>
+              </div>
 
               <button
                 type="submit"

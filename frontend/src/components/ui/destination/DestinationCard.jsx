@@ -1,13 +1,87 @@
 "use client";
 
 import axios from "axios";
-import { useState } from "react";
-import { AiOutlineDelete } from "react-icons/ai";
+import { useEffect, useState } from "react";
+import { AiOutlineDelete, AiOutlinePlusCircle } from "react-icons/ai";
 import { RxCross1 } from "react-icons/rx";
 import { toast } from "react-toastify";
+import { Swiper, SwiperSlide } from "swiper/react";
+import SwiperCore from "swiper";
+import { Navigation } from "swiper/modules";
+import "swiper/css/bundle";
 
 const DestinationCard = ({ destination }) => {
-  
+  SwiperCore.use([Navigation]);
+
+  // safe parser: returns an array of strings (image URLs)
+  function parseJsonArrayField(field) {
+    if (!field && field !== "") return []; // null/undefined -> empty
+
+    // already an array
+    if (Array.isArray(field)) return field.map(String);
+
+    // only accept strings from here
+    if (typeof field !== "string") return [];
+
+    const trimmed = field.trim();
+    if (trimmed === "") return [];
+
+    // 1) try normal JSON.parse
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map(String);
+      if (parsed && typeof parsed === "string") return [String(parsed)];
+    } catch (e) {
+      // ignore parse error and try recovery below
+    }
+
+    // 2) try to extract JSON arrays if multiple were concatenated like: "[] []"
+    const arrMatches = [];
+    const re = /\[[^\]]*]/g; // find [...], non-greedy-ish
+    let m;
+    while ((m = re.exec(trimmed)) !== null) {
+      try {
+        const p = JSON.parse(m[0]);
+        if (Array.isArray(p)) arrMatches.push(...p.map(String));
+      } catch (err) {
+        // skip bad chunk
+      }
+    }
+    if (arrMatches.length) {
+      // dedupe and return
+      return Array.from(new Set(arrMatches));
+    }
+
+    // 3) fallback: attempt to split simple comma-separated string of URLs
+    const split = trimmed
+      .split(/\s*,\s*/)
+      .map((s) => s.replace(/^["']|["']$/g, "").trim())
+      .filter(Boolean);
+
+    // dedupe and return
+    return Array.from(new Set(split));
+  }
+
+  const parsedImages = parseJsonArrayField(destination?.images);
+  const [existingImages, setExistingImages] = useState(parsedImages);
+  const [newImages, setNewImages] = useState([]);
+  useEffect(() => {
+    setExistingImages(parseJsonArrayField(destination?.images));
+    setNewImages([]);
+  }, [destination]);
+
+  const removeExistingImage = (url) => {
+    setExistingImages((prev) => prev.filter((u) => u !== url));
+  };
+
+  const handleNewFiles = (fileList) => {
+    setNewImages((prev) => [...prev, ...Array.from(fileList)]);
+  };
+
+  const removeNewImage = (index) => {
+    setNewImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const [openUpdate, setOpenUpdate] = useState(false);
   const [name, setName] = useState(destination?.name);
   const [country, setCountry] = useState(destination?.country);
@@ -22,22 +96,25 @@ const DestinationCard = ({ destination }) => {
 
     setLoading(false);
     try {
+      
+      const formData = new FormData();
+
+      formData.append("name", name);
+      formData.append("country", country);
+      formData.append("region", region); 
+      formData.append("description", description); 
+      formData.append("best_season", bestSeason); 
+      
+      formData.append("keepImages", JSON.stringify(existingImages || []));
+
+      newImages && newImages.forEach((file) => {
+        formData.append("images", file);
+      });
+
       setLoading(true);
       const res = await axios.put(
         `${process.env.NEXT_PUBLIC_SERVER_URL}/destination/update/${destination?.id}`,
-        {
-          name,
-          country,
-          region,
-          description,
-          best_season: bestSeason,
-        },
-        {
-          withCredentials: true,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
+        formData
       );
       if (res.data.success) {
         setLoading(false);
@@ -92,11 +169,20 @@ const DestinationCard = ({ destination }) => {
     <div className="rounded-3xl bg-[#f5f5f5] p-3 flex flex-col w-72  pb-4 hover:shadow-lg transition-shadow duration-300 h-95 justify-between">
       <div className="flex flex-col gap-y-3">
         <div className="w-full h-44 overflow-hidden rounded-2xl">
-          <img
-            className="w-full h-full object-cover"
-            src={destination?.images?.[0]}
-            alt="destination"
-          />
+          <Swiper navigation={true}>
+            {parsedImages &&
+              parsedImages.map((image) => (
+                <SwiperSlide key={image}>
+                  <div
+                    className="h-44"
+                    style={{
+                      background: `url(${image}) center no-repeat`,
+                      backgroundSize: "cover",
+                    }}
+                  ></div>
+                </SwiperSlide>
+              ))}
+          </Swiper>
         </div>
 
         <h1 className="text-lg font-semibold text-black line-clamp-1">
@@ -127,7 +213,7 @@ const DestinationCard = ({ destination }) => {
         </button>
 
         <button
-        disabled={loadingDelete}
+          disabled={loadingDelete}
           className="bg-red-500 rounded-full px-4 py-2 text-white text-sm hover:bg-red-600 transition w-20 cursor-pointer"
           onClick={handleDelete}
         >
@@ -135,7 +221,7 @@ const DestinationCard = ({ destination }) => {
         </button>
       </div>
       {openUpdate && (
-        <div className="absolute flex justify-center items-center w-full h-screen  bg-[#0000005f] top-0 left-0 ">
+        <div className="absolute z-100 flex justify-center items-center w-full h-screen  bg-[#0000005f] top-0 left-0 ">
           <div className="w-[90%]  md:w-[50%] h-[90%] bg-white shadow rounded-sm pb-4 p-3 py-5 overflow-y-scroll relative">
             <div
               className="absolute top-4 right-4 "
@@ -226,36 +312,63 @@ const DestinationCard = ({ destination }) => {
               <br />
 
               {/* Images */}
-              {/* <div>
-                  <label>
-                    Upload Images <span className="text-red-500">*</span>
-                  </label>
-  
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    id="upload"
-                    className="hidden"
-                    onChange={(e) => setImages(Array.from(e.target.files))}
-                  />
-  
-                  <div className="flex gap-3 flex-wrap mt-2">
-                    <label htmlFor="upload" className="cursor-pointer">
-                      <AiOutlinePlusCircle size={30} />
-                    </label>
-  
-                    {images.map((img, index) => (
-                      <img
-                        key={index}
-                        src={URL.createObjectURL(img)}
-                        className="w-24 h-24 object-cover rounded"
-                        alt="preview"
-                      />
-                    ))}
-                  </div>
-                </div> */}
+              <div>
+                <label>Images</label>
 
+                <div className="flex gap-3 flex-wrap mt-2">
+                  {existingImages.map((url, idx) => (
+                    <div key={url} className="relative">
+                      <img
+                        src={url}
+                        alt={`img-${idx}`}
+                        className="w-24 h-24 object-cover rounded"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeExistingImage(url)}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 text-xs flex items-center justify-center"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+
+                  {newImages.map((file, idx) => (
+                    <div key={idx} className="relative">
+                      <img
+                        src={URL.createObjectURL(file)}
+                        alt={`new-${idx}`}
+                        className="w-24 h-24 object-cover rounded"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeNewImage(idx)}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 text-xs flex items-center justify-center"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* file input */}
+                <input
+                  id={`newImages-${destination?.id}`}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => handleNewFiles(e.target.files)}
+                />
+                <div className="mt-2">
+                  <label
+                    htmlFor={`newImages-${destination?.id}`}
+                    className="cursor-pointer inline-flex  my-2items-center gap-2 text-sm text-gray-700"
+                  >
+                    <AiOutlinePlusCircle /> Add images
+                  </label>
+                </div>
+              </div>
               <br />
 
               <button

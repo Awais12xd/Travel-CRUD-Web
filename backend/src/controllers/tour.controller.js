@@ -105,17 +105,32 @@ export const getTourById = async (req, res) => {
   }
 };
 
-export const updateTour = async (req, res) => {
+export const updateTour = async (req, res, next) => {
   const { id } = req.params;
   const {
     title,
     price,
     duration_days,
+    keepImages,
     itinerary,
     inclusions,
     exclusions,
     max_group_size,
   } = req.body;
+  console.log(req.body);
+
+  let safeImages;
+  const files = req.files;
+  if (!files || files.length === 0) {
+    console.log("No images to upload on cloudinary")
+    safeImages = keepImages;
+  } else {
+    const cloudinaryResults = await uploadMultipleToCloudinary(files);
+    const images = cloudinaryResults.map((result) => result.url);
+    const imagesJSON = JSON.stringify(images);
+    const newImages = keepImages + imagesJSON;
+    safeImages = JSON.stringify(newImages);
+  }
 
   try {
     const result = await pool.query(
@@ -127,8 +142,9 @@ export const updateTour = async (req, res) => {
            inclusions = COALESCE($5, inclusions),
            exclusions = COALESCE($6, exclusions),
            max_group_size = COALESCE($7, max_group_size),
+           images = COALESCE($8, images),
            updated_at = NOW()
-       WHERE id=$8
+       WHERE id=$9
        RETURNING *`,
       [
         title,
@@ -138,6 +154,7 @@ export const updateTour = async (req, res) => {
         inclusions,
         exclusions,
         max_group_size,
+        safeImages,
         id,
       ],
     );
@@ -146,15 +163,9 @@ export const updateTour = async (req, res) => {
       return res.status(404).json({ error: "Tour not found" });
     res
       .status(201)
-      .json(
-        new apiResponse(
-          201,
-          "Tour Updated successfully!",
-          result.rows[0],
-        ),
-      );
+      .json(new apiResponse(201, "Tour Updated successfully!", result.rows[0]));
   } catch (err) {
-    return next(new errorHandler("Error while updating tour" , 500))
+    return next(new errorHandler(`Error while updating tour ${err}`, 500));
   }
 };
 

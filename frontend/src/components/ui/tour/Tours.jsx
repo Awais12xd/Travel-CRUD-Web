@@ -433,7 +433,7 @@ const Tours = () => {
       </div>
 
       <div className="">
-        <h1 className="text-md md:text-xl font-semibold ">Tours Found({tours?.length})</h1>
+        <h1 className="text-md md:text-xl font-semibold ">Tours Found ({tours?.length})</h1>
         <div className="mt-3">
             {
             loadingTours ? (
