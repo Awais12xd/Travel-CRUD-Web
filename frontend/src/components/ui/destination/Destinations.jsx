@@ -52,13 +52,6 @@ const Destinations = () => {
   const [images, setImages] = useState([]);
   const [loadingCreate , setLoadingCreate] = useState(false);
 
-  const handleFileChange = (e) => {
-    e.preventDefault();
-    const files = Array.from(e.target.files);
-    //Tode Check File Size
-    setImages((prev) => [...prev, ...files]);
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
    
@@ -270,7 +263,7 @@ const Destinations = () => {
       </div>
 
       <div className="">
-        <h1 className="text-md md:text-xl font-semibold ">All Destinations</h1>
+        <h1 className="text-md md:text-xl font-semibold ">Destinations Found({destinations?.length})</h1>
         <div className="mt-3 ">
 
           {
