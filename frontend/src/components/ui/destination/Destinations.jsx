@@ -303,7 +303,9 @@ const SearchDestination = ({ setDestinations }) => {
       );
       if (res.data.success) {
         setLoadingSearch(false);
+        window.location.reload(true);
         setDestinations(res.data.data)
+
       }
       if (res.data.success === false) {
         setLoadingSearch(false);
