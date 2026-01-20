@@ -152,7 +152,7 @@ const TourCard = ({ tour }) => {
   };
 
   return (
-    <div className="rounded-3xl bg-[#f5f5f5] p-3 flex flex-col w-72 pb-4 hover:shadow-lg transition-shadow duration-300 h-125 justify-between">
+    <div className="rounded-3xl bg-[#f5f5f5] p-3 flex flex-col w-72 pb-4 hover:shadow-lg transition-shadow duration-300 h-fit justify-between">
       <div className="flex flex-col gap-y-3">
         <div className="w-full h-44 overflow-hidden rounded-2xl bg-gray-100">
           <img
