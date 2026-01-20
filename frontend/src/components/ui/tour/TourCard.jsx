@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { AiOutlinePlusCircle } from "react-icons/ai";
 import { RxCross1 } from "react-icons/rx";
 import { toast } from "react-toastify";
+import { Swiper, SwiperSlide } from "swiper/react";
+import "swiper/css";
 
 const TourCard = ({ tour }) => {
   const [openUpdate, setOpenUpdate] = useState(false);
@@ -155,6 +157,22 @@ const TourCard = ({ tour }) => {
     <div className="rounded-3xl bg-[#f5f5f5] p-3 flex flex-col w-72 pb-4 hover:shadow-lg transition-shadow duration-300 h-fit justify-between">
       <div className="flex flex-col gap-y-3">
         <div className="w-full h-44 overflow-hidden rounded-2xl bg-gray-100">
+          <Swiper
+            spaceBetween={50}
+            slidesPerView={3}
+            onSlideChange={() => console.log("slide change")}
+            onSwiper={(swiper) => console.log(swiper)}
+          >
+            {
+              tour?.images && tour?.images.map((image) => (
+
+                <SwiperSlide>
+                  <img src={image} alt="tour" />
+                </SwiperSlide>
+              ))
+            }
+            ...
+          </Swiper>
           <img
             className="w-full h-full object-cover"
             src={
