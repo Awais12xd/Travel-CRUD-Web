@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RxCross1 } from "react-icons/rx";
 import { AiOutlinePlusCircle } from "react-icons/ai";
 import { toast } from "react-toastify";
 import axios from "axios";
 import TourCard from "./TourCard";
+import { getTours } from "@/utils/getTours";
+import { getDestinations } from "@/utils/getDestinations";
 
 const Tours = () => {
   
@@ -14,54 +16,23 @@ const Tours = () => {
   const [openCreate, setOpenCreate] = useState(false);
   const [loadingTours, setLoadingTours] = useState(false);
   useEffect(() => {
-    const fetchDestinations = async () => {
-      try {
-        const res = await axios.get(
-          `${process.env.NEXT_PUBLIC_SERVER_URL}/destination/get-all`,
-          {
-            withCredentials: true,
-          },
-        );
-        if (res.data.success) {
-          console.log(res.data);
-          setDestinations(res.data.data);
-        }
-        if (res.data.success === false) {
-          toast.error(res.data.message);
-        }
-      } catch (err) {
-        if (err.response) {
-          toast.error(err.response.data.message);
-        } else {
-          toast.error(err.message);
-        }
+    const fetchBoth = async () => {
+      const toursData = await getTours();
+      const destinationData = await getDestinations();
+
+      if(!toursData){
+        console.log("Error while getting tours");
       }
-    };
-    const fetchTours = async () => {
-      try {
-        setLoadingTours(true);
-        const res = await axios.get(
-          `${process.env.NEXT_PUBLIC_SERVER_URL}/tour/get-all`
-        );
-        if (res.data.success) {
-          console.log(res.data);
-          setTours(res.data.data);
-        }
-        if (res.data.success === false) {
-          toast.error(res.data.message);
-        }
-      } catch (err) {
-        if (err.response) {
-          toast.error(err.response.data.message);
-        } else {
-          toast.error(err.message);
-        }
-      }finally {
-        setLoadingTours(false);
+      console.log(toursData , "Tour Data")
+      if(!destinationData){
+        console.log("Error while getting destnations");
       }
+
+      setTours(toursData);
+      setDestinations(destinationData);
+      
     };
-    fetchTours();
-    fetchDestinations();
+    fetchBoth();
   }, []);
   
   
@@ -78,21 +49,43 @@ const Tours = () => {
 
   const [loadingCreate, setLoadingCreate] = useState(false);
 
+  const handleFileChange = (e) => {
+    const files = Array.from(e.target.files);
+
+    const newImages = files.map((file, index) => ({
+      file,
+      preview: URL.createObjectURL(file),
+      isDefault: images.length === 0 && index === 0, 
+    }));
+
+    setImages((prev) => [...prev, ...newImages]);
+  };
+
+  const setDefaultImage = (index) => {
+    setImages((prev) =>
+      prev.map((img, i) => ({
+        ...img,
+        isDefault: i === index,
+      })),
+    );
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     const formData = new FormData();
   
-    images.forEach((image) => {
-      formData.append("images", image);
+   images.forEach((img, index) => {
+      formData.append("images", img.file);
+      if (img.isDefault) {
+        formData.append("defaultImageIndex", index);
+      }
     });
-
     formData.append("title", title);
     formData.append("price", price);
     formData.append("duration_days", durationDays);
     formData.append("destination_id", destinationId);
     formData.append("max_group_size", maxGroupSize);
-    console.log(itinerary)
 
     formData.append("itinerary", JSON.stringify(itinerary));
     formData.append("inclusions", JSON.stringify(inclusions));
@@ -180,7 +173,7 @@ const Tours = () => {
       </div>
 
       {openCreate && (
-        <div className="absolute flex justify-center items-center w-full h-screen bg-[#0000005f] top-0 left-0">
+        <div className="absolute z-100 flex justify-center items-center w-full h-screen bg-[#0000005f] top-0 left-0">
           <div className="w-[90%] md:w-[55%] h-[90%] bg-white shadow rounded-sm pb-4 p-4 overflow-y-scroll relative">
             <div
               className="absolute top-4 right-4"
@@ -395,7 +388,7 @@ const Tours = () => {
                   accept="image/*"
                   id="upload"
                   className="hidden"
-                  onChange={(e) => setImages(Array.from(e.target.files))}
+                  onChange={handleFileChange}
                 />
 
                 <div className="flex gap-3 flex-wrap mt-2">
@@ -404,12 +397,34 @@ const Tours = () => {
                   </label>
 
                   {images.map((img, index) => (
-                    <img
+                     <div
                       key={index}
-                      src={URL.createObjectURL(img)}
-                      className="w-24 h-24 object-cover rounded"
-                      alt="preview"
-                    />
+                      className={`relative w-24 h-24 rounded border-2 ${
+                        img.isDefault ? "border-blue-600" : "border-gray-300"
+                      }`}
+                    >
+                      <img
+                        src={img.preview}
+                        className="w-full h-full object-cover rounded"
+                        alt="preview"
+                      />
+
+                      {img.isDefault && (
+                        <span className="absolute top-1 left-1 bg-blue-600 text-white text-xs px-2 rounded">
+                          Default
+                        </span>
+                      )}
+
+                      {!img.isDefault && (
+                        <button
+                          type="button"
+                          onClick={() => setDefaultImage(index)}
+                          className="absolute bottom-1 left-1 right-1 bg-black/70 text-white text-xs py-0.5 rounded"
+                        >
+                          Set default
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -429,7 +444,7 @@ const Tours = () => {
       )}
 
       <div className="my-3">
-        <SearchTours setTours={setTours} destinations={destinations}  />
+        <SearchTours setTours={setTours} destinations={destinations} tours={tours} />
       </div>
 
       <div className="">
@@ -452,73 +467,120 @@ const Tours = () => {
 
 export default Tours;
 
-const SearchTours = ({ destinations = [], setTours }) => {
+const SearchTours = ({ destinations = [], tours = [], setTours }) => {
   const [filters, setFilters] = useState({
     name: "",
-    duration_days: "",    
-    max_group_size: "",    
-    destination_id: "",     
+    duration_days: "",
+    max_group_size: "",
+    destination_id: "",
     sort: "latest",
   });
-  const [loadingSearch, setLoadingSearch] = useState(false);
 
-  const handleSearch = async () => {
-    const params = new URLSearchParams();
+  // 🔒 Immutable source list (stored once)
+  const originalToursRef = useRef([]);
 
-    if (filters.name) params.append("name", filters.name);
-    if (filters.duration_days) params.append("duration_days", filters.duration_days);
-    if (filters.max_group_size) params.append("max_group_size", filters.max_group_size);
-    if (filters.destination_id) params.append("destination_id", filters.destination_id);
-    if (filters.sort) params.append("sort", filters.sort);
-
-    try {
-      setLoadingSearch(true);
-      const res = await axios.get(
-        `${process.env.NEXT_PUBLIC_SERVER_URL}/tour/search?${params.toString()}`
-      );
-
-      if (res.data.data) {
-        setTours(res.data.data);
-      } else {
-        toast.error(res.data.message || "No tours found");
-      }
-    } catch (err) {
-      if (err.response?.data?.message) toast.error(err.response.data.message);
-      else toast.error(err.message || "Search failed");
-    } finally {
-      setLoadingSearch(false);
+  // Save original tours only once
+  useEffect(() => {
+    if (originalToursRef.current.length === 0 && tours?.length > 0) {
+      originalToursRef.current = tours;
     }
+  }, [tours]);
+
+  // 🔍 Local filtering logic (runs on every change)
+  useEffect(() => {
+    const source = originalToursRef.current;
+
+    const name = filters.name.toLowerCase().trim();
+    const duration = Number(filters.duration_days);
+    const maxGroup = Number(filters.max_group_size);
+    const destinationId = filters.destination_id;
+
+    let result = source.filter((t) => {
+      const matchName = name
+        ? t.title?.toLowerCase().includes(name)
+        : true;
+
+      const matchDuration = duration
+        ? Number(t.duration_days) === duration
+        : true;
+
+      const matchGroup = maxGroup
+        ? Number(t.max_group_size) <= maxGroup
+        : true;
+
+      const matchDestination = destinationId
+        ? t.destination_id === destinationId
+        : true;
+
+      return (
+        matchName &&
+        matchDuration &&
+        matchGroup &&
+        matchDestination
+      );
+    });
+
+    // 🔃 Sorting
+    switch (filters.sort) {
+      case "oldest":
+        result.sort(
+          (a, b) => new Date(a.created_at) - new Date(b.created_at)
+        );
+        break;
+
+      case "price_asc":
+        result.sort((a, b) => Number(a.price) - Number(b.price));
+        break;
+
+      case "price_desc":
+        result.sort((a, b) => Number(b.price) - Number(a.price));
+        break;
+
+      default: // latest
+        result.sort(
+          (a, b) => new Date(b.created_at) - new Date(a.created_at)
+        );
+    }
+
+    setTours(result);
+  }, [filters, setTours]);
+
+  const handleChange = (key) => (e) => {
+    setFilters((prev) => ({ ...prev, [key]: e.target.value }));
   };
 
   return (
     <div className="my-4 bg-[#f5f5f5] rounded-xl px-3 py-4 w-full">
       <div className="w-full mb-4 grid grid-cols-1 md:grid-cols-2 gap-2">
         <input
-          className="px-3 py-2 border border-gray-300 rounded-md bg-white"
+          className="px-3 py-2 border rounded-md bg-white"
           placeholder="Search tour name"
-          onChange={(e) => setFilters({ ...filters, name: e.target.value })}
+          value={filters.name}
+          onChange={handleChange("name")}
         />
 
         <input
-          className="px-3 py-2 border border-gray-300 rounded-md bg-white"
+          className="px-3 py-2 border rounded-md bg-white"
           placeholder="Duration (days)"
           type="number"
-          onChange={(e) => setFilters({ ...filters, duration_days: e.target.value })}
+          value={filters.duration_days}
+          onChange={handleChange("duration_days")}
         />
       </div>
 
       <div className="w-full mb-4 grid grid-cols-1 md:grid-cols-3 gap-2">
         <input
-          className="px-3 py-2 border border-gray-300 rounded-md bg-white"
+          className="px-3 py-2 border rounded-md bg-white"
           placeholder="Max group size"
           type="number"
-          onChange={(e) => setFilters({ ...filters, max_group_size: e.target.value })}
+          value={filters.max_group_size}
+          onChange={handleChange("max_group_size")}
         />
 
         <select
-          className="px-3 py-2 border border-gray-300 rounded-md bg-white"
+          className="px-3 py-2 border rounded-md bg-white"
           value={filters.destination_id}
-          onChange={(e) => setFilters({ ...filters, destination_id: e.target.value })}
+          onChange={handleChange("destination_id")}
         >
           <option value="">All destinations</option>
           {destinations?.map((d) => (
@@ -529,9 +591,9 @@ const SearchTours = ({ destinations = [], setTours }) => {
         </select>
 
         <select
-          className="px-3 py-2 border border-gray-300 rounded-md bg-white"
+          className="px-3 py-2 border rounded-md bg-white"
           value={filters.sort}
-          onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
+          onChange={handleChange("sort")}
         >
           <option value="latest">Latest</option>
           <option value="oldest">Oldest</option>
@@ -539,19 +601,11 @@ const SearchTours = ({ destinations = [], setTours }) => {
           <option value="price_asc">Price: Low → High</option>
         </select>
       </div>
-
-      <div className="flex justify-end">
-        <button
-          onClick={handleSearch}
-          className="bg-[#163d8c] rounded-xl px-4 py-2 text-white hover:bg-[#102d67] transition"
-          disabled={loadingSearch}
-        >
-          {loadingSearch ? "Searching..." : "Search Tours"}
-        </button>
-      </div>
     </div>
   );
 };
+
+
 
 const AllTours = ({ tours }) => {
   return (

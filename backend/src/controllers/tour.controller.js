@@ -3,9 +3,8 @@ import { apiResponse } from "../utils/apiResponse.js";
 import { uploadMultipleToCloudinary } from "../utils/cloudinary.js";
 import { errorHandler } from "../utils/errorHandler.js";
 
-export const createTour = async (req, res , next) => {
-  
-  console.log("req is coming " )
+export const createTour = async (req, res, next) => {
+  console.log("req is coming ");
   const {
     title,
     price,
@@ -15,24 +14,32 @@ export const createTour = async (req, res , next) => {
     inclusions,
     exclusions,
     max_group_size,
+    defaultImageIndex
   } = req.body;
 
-   const itineraryJSON = JSON.stringify(itinerary);
-const inclusionsJSON = JSON.stringify(inclusions);
-const exclusionsJSON = JSON.stringify(exclusions);
+  const itineraryJSON = JSON.stringify(itinerary);
+  const inclusionsJSON = JSON.stringify(inclusions);
+  const exclusionsJSON = JSON.stringify(exclusions);
 
-if (!title || !price || !duration_days || !destination_id) {
-  return res.status(400).json({ error: "Missing required fields" });
-}
+  if (!title || !price || !duration_days || !destination_id) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
 
-const files = req.files;
-if (!files || files.length === 0) {
-  return next(new errorHandler("Please upload at least one image", 400));
-}
+  const files = req.files;
+  if (!files || files.length === 0) {
+    return next(new errorHandler("Please upload at least one image", 400));
+  }
 
-const cloudinaryResults = await uploadMultipleToCloudinary(files);
-const images = cloudinaryResults.map((result) => result.url);
-const imagesJSON = JSON.stringify(images);
+  const cloudinaryResults = await uploadMultipleToCloudinary(files);
+   const images = cloudinaryResults.map((result, index) => ({
+    url: result.url,
+    isDefault: Number(defaultImageIndex) === index,
+  }));
+
+  if (!images.some((img) => img.isDefault)) {
+    images[0].isDefault = true;
+  }
+  const imagesJSON = JSON.stringify(images);
 
   try {
     const result = await pool.query(
@@ -53,22 +60,15 @@ const imagesJSON = JSON.stringify(images);
       ],
     );
 
-
-     res
+    res
       .status(201)
-      .json(
-        new apiResponse(
-          201,
-          "Tour created successfully!",
-          result.rows[0],
-        ),
-      );
+      .json(new apiResponse(201, "Tour created successfully!", result.rows[0]));
   } catch (err) {
     return next(new errorHandler("Error while creating tour", 500));
   }
 };
 
-export const getTours = async (req, res , next) => {
+export const getTours = async (req, res, next) => {
   try {
     const result = await pool.query(
       `SELECT t.*, d.name as destination_name
@@ -76,32 +76,27 @@ export const getTours = async (req, res , next) => {
        JOIN destinations d ON t.destination_id = d.id
        ORDER BY t.created_at DESC`,
     );
-     res
+    res
       .status(201)
-      .json(
-        new apiResponse(
-          201,
-          "Tours found successfully!",
-          result.rows,
-        ),
-      );
+      .json(new apiResponse(201, "Tours found successfully!", result.rows));
   } catch (err) {
-     return next(new errorHandler("Error while getting all tour", 500));
+    return next(new errorHandler("Error while getting all tour", 500));
   }
 };
 
 // GET single tour by ID
-export const getTourById = async (req, res) => {
+export const getTourById = async (req, res , next) => {
   const { id } = req.params;
 
   try {
     const result = await pool.query("SELECT * FROM tours WHERE id=$1", [id]);
     if (!result.rows[0])
       return res.status(404).json({ error: "Tour not found" });
-    res.json(result.rows[0]);
+    res
+      .status(201)
+      .json(new apiResponse(201, "Tour found successfully!", result.rows));
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Database error" });
+    return next(new errorHandler("Error while getting tour by id", 500));
   }
 };
 
@@ -116,6 +111,7 @@ export const updateTour = async (req, res, next) => {
     inclusions,
     exclusions,
     max_group_size,
+    defaultImageIndex
   } = req.body;
   console.log(req.body);
 
@@ -126,7 +122,10 @@ export const updateTour = async (req, res, next) => {
     safeImages = keepImages;
   } else {
     const cloudinaryResults = await uploadMultipleToCloudinary(files);
-    const images = cloudinaryResults.map((result) => result.url);
+    const images = cloudinaryResults.map((result, index) => ({
+      url: result.url,
+      isDefault: false,
+    }));
     const imagesJSON = JSON.stringify(images);
     const newImages = keepImages + imagesJSON;
     safeImages = JSON.stringify(newImages);
@@ -169,7 +168,7 @@ export const updateTour = async (req, res, next) => {
   }
 };
 
-export const deleteTour = async (req, res) => {
+export const deleteTour = async (req, res, next) => {
   const { id } = req.params;
 
   try {
@@ -180,28 +179,17 @@ export const deleteTour = async (req, res) => {
     if (!result.rows[0])
       return res.status(404).json({ error: "Tour not found" });
 
-     res
+    res
       .status(201)
-      .json(
-        new apiResponse(
-          201,
-          "Tour Deleted successfully!",
-          result.rows[0],
-        ),
-      );
+      .json(new apiResponse(201, "Tour Deleted successfully!", result.rows[0]));
   } catch (err) {
-    return next(new errorHandler("Error while deleting tour" , 500))
+    return next(new errorHandler("Error while deleting tour", 500));
   }
 };
 
 export const searchTours = async (req, res, next) => {
-  const {
-    name,
-    duration_days,
-    max_group_size,
-    destination_id,
-    sort,
-  } = req.query;
+  const { name, duration_days, max_group_size, destination_id, sort } =
+    req.query;
 
   let query = `
     SELECT
@@ -237,13 +225,13 @@ export const searchTours = async (req, res, next) => {
   }
 
   // Sorting
-  if (sort === 'latest') {
+  if (sort === "latest") {
     query += ` ORDER BY t.created_at DESC`;
-  } else if (sort === 'oldest') {
+  } else if (sort === "oldest") {
     query += ` ORDER BY t.created_at ASC`;
-  } else if (sort === 'price_desc') {
+  } else if (sort === "price_desc") {
     query += ` ORDER BY t.price DESC`;
-  } else if (sort === 'price_asc') {
+  } else if (sort === "price_asc") {
     query += ` ORDER BY t.price ASC`;
   } else {
     query += ` ORDER BY t.created_at DESC`;
@@ -251,7 +239,9 @@ export const searchTours = async (req, res, next) => {
 
   try {
     const result = await pool.query(query, values);
-    return res.status(201).json(new apiResponse(201, "Tours Found Successfully!", result.rows));
+    return res
+      .status(201)
+      .json(new apiResponse(201, "Tours Found Successfully!", result.rows));
   } catch (err) {
     console.error("searchTours error:", err);
     return next(new errorHandler("Error while searching tours", 500));

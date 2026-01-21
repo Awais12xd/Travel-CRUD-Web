@@ -1,47 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import DestinationCard from "./DestinationCard";
 import { RxCross1 } from "react-icons/rx";
 import { AiOutlinePlusCircle } from "react-icons/ai";
 import { toast } from "react-toastify";
 import axios from "axios";
+import { getDestinations } from "@/utils/getDestinations";
 
 const Destinations = () => {
   const [destinations, setDestinations] = useState(null);
   const [openCreate, setOpenCreate] = useState(false);
   const [loadingDestinations, setLoadingDestinations] = useState(false);
 
-
   useEffect(() => {
-     const fetchDestinations = async () => {
-        try {
-          setLoadingDestinations(true);
-      const res = await axios.get(
-        `${process.env.NEXT_PUBLIC_SERVER_URL}/destination/get-all`, {
-          withCredentials : true
-        },
-      );
-      if (res.data.success) {
-        console.log(res.data)
-        setDestinations(res.data.data)
+    const fetchDestinations = async () => {
+      const data = await getDestinations();
+      if (!data) {
+        toast.error("error while getting destinations");
       }
-      if (res.data.success === false) {
-        toast.error(res.data.message);
-      }
-    } catch (err) {
-      if (err.response) {
-        toast.error(err.response.data.message);
-      } else {
-        toast.error(err.message);
-      }
-    } finally {
-      setLoadingDestinations(false);
-    }
-     };
+      console.log(data, "data is here");
+      setDestinations(data);
+    };
 
-     fetchDestinations();
-
+    fetchDestinations();
   }, []);
 
   const [name, setName] = useState("");
@@ -50,22 +32,39 @@ const Destinations = () => {
   const [description, setDescription] = useState("");
   const [bestSeason, setBestSeason] = useState("");
   const [images, setImages] = useState([]);
-  const [loadingCreate , setLoadingCreate] = useState(false);
+  const [loadingCreate, setLoadingCreate] = useState(false);
 
   const handleFileChange = (e) => {
-    e.preventDefault();
     const files = Array.from(e.target.files);
-    //Tode Check File Size
-    setImages((prev) => [...prev, ...files]);
+
+    const newImages = files.map((file, index) => ({
+      file,
+      preview: URL.createObjectURL(file),
+      isDefault: images.length === 0 && index === 0, // first image default
+    }));
+
+    setImages((prev) => [...prev, ...newImages]);
+  };
+
+  const setDefaultImage = (index) => {
+    setImages((prev) =>
+      prev.map((img, i) => ({
+        ...img,
+        isDefault: i === index,
+      })),
+    );
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-   
+
     const formData = new FormData();
 
-    images.forEach((image) => {
-      formData.append("images", image);
+    images.forEach((img, index) => {
+      formData.append("images", img.file);
+      if (img.isDefault) {
+        formData.append("defaultImageIndex", index);
+      }
     });
 
     formData.append("name", name);
@@ -80,7 +79,7 @@ const Destinations = () => {
         `${process.env.NEXT_PUBLIC_SERVER_URL}/destination/create`,
         formData,
         {
-          withCredentials:true,
+          withCredentials: true,
           headers: {
             "Content-Type": "multipart/form-data",
           },
@@ -91,15 +90,13 @@ const Destinations = () => {
         window.location.reload(true);
         setOpenCreate(false);
         toast.success(res.data.message);
-        
 
         setName("");
         setBestSeason("");
-        setCountry("")
+        setCountry("");
         setDescription("");
         setImages(null);
-        setRegion("")
-
+        setRegion("");
       }
       if (res.data.success === false) {
         setLoadingCreate(false);
@@ -130,7 +127,7 @@ const Destinations = () => {
       </div>
 
       {openCreate && (
-        <div className="absolute flex justify-center items-center w-full h-screen  bg-[#0000005f] top-0 left-0 ">
+        <div className="absolute z-100 flex justify-center items-center w-full h-screen  bg-[#0000005f] top-0 left-0 ">
           <div className="w-[90%]  md:w-[50%] h-[90%] bg-white shadow rounded-sm pb-4 p-3 py-5 overflow-y-scroll relative">
             <div
               className="absolute top-4 right-4 "
@@ -219,7 +216,6 @@ const Destinations = () => {
               </div>
 
               <br />
-             
 
               <div>
                 <label>
@@ -232,7 +228,7 @@ const Destinations = () => {
                   multiple
                   id="upload"
                   className="hidden"
-                  onChange={(e) => setImages(Array.from(e.target.files))}
+                  onChange={handleFileChange}
                 />
 
                 <div className="flex gap-3 flex-wrap mt-2">
@@ -241,12 +237,34 @@ const Destinations = () => {
                   </label>
 
                   {images.map((img, index) => (
-                    <img
+                    <div
                       key={index}
-                      src={URL.createObjectURL(img)}
-                      className="w-24 h-24 object-cover rounded"
-                      alt="preview"
-                    />
+                      className={`relative w-24 h-24 rounded border-2 ${
+                        img.isDefault ? "border-blue-600" : "border-gray-300"
+                      }`}
+                    >
+                      <img
+                        src={img.preview}
+                        className="w-full h-full object-cover rounded"
+                        alt="preview"
+                      />
+
+                      {img.isDefault && (
+                        <span className="absolute top-1 left-1 bg-blue-600 text-white text-xs px-2 rounded">
+                          Default
+                        </span>
+                      )}
+
+                      {!img.isDefault && (
+                        <button
+                          type="button"
+                          onClick={() => setDefaultImage(index)}
+                          className="absolute bottom-1 left-1 right-1 bg-black/70 text-white text-xs py-0.5 rounded"
+                        >
+                          Set default
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -258,7 +276,7 @@ const Destinations = () => {
                 disabled={loadingCreate}
                 className="w-full h-12 border rounded cursor-pointer"
               >
-               {loadingCreate ? "Creating..." : "Create Destination"} 
+                {loadingCreate ? "Creating..." : "Create Destination"}
               </button>
             </form>
           </div>
@@ -266,22 +284,24 @@ const Destinations = () => {
       )}
 
       <div className="my-3">
-        <SearchDestination setDestinations={setDestinations} />
+        <SearchDestination
+          setDestinations={setDestinations}
+          destinations={destinations}
+        />
       </div>
 
       <div className="">
-        <h1 className="text-md md:text-xl font-semibold ">Destinations Found ({destinations?.length})</h1>
+        <h1 className="text-md md:text-xl font-semibold ">
+          Destinations Found ({destinations?.length})
+        </h1>
         <div className="mt-3 ">
-
-          {
-            loadingDestinations ? (
-               <p className="w-full text-center text-lg font-semibold text-black mt-8 ">
-                Loading...
-               </p>
-            ) : (
+          {loadingDestinations ? (
+            <p className="w-full text-center text-lg font-semibold text-black mt-8 ">
+              Loading...
+            </p>
+          ) : (
             <AllDestinations destinations={destinations} />
-            )
-          }
+          )}
         </div>
       </div>
     </div>
@@ -290,89 +310,105 @@ const Destinations = () => {
 
 export default Destinations;
 
-const SearchDestination = ({ setDestinations }) => {
+/**
+ * SearchDestination
+ * Props:
+ *  - destinations: original array (full list) — used as source for local filtering
+ *  - setDestinations: function to set the filtered list in parent
+ *
+ * NOTE: This component mutates no external state except via setDestinations.
+ */
 
-  const [filters, setFilters] =  useState({
-    name: '',
-    country: '',
-    best_season: '',
-    sort: 'latest',
+const SearchDestination = ({ setDestinations, destinations = [] }) => {
+  const [filters, setFilters] = useState({
+    name: "",
+    country: "",
+    best_season: "",
+    sort: "latest",
   });
-  const [loadingSearch , setLoadingSearch] = useState(false);
- 
-  const handleSearch = async () => {
-    const params = new URLSearchParams(filters);
-    setLoadingSearch(false);
-    try {
-      setLoadingSearch(true);
-      const res = await axios.get(
-        `${process.env.NEXT_PUBLIC_SERVER_URL}/destination/search?${params.toString()}`
-      );
-      if (res.data.success) {
-        setLoadingSearch(false);
-        setDestinations(res.data.data)
-      }
-      if (res.data.success === false) {
-        setLoadingSearch(false);
-        toast.error(res.data.message);
-      }
-    } catch (err) {
-      setLoadingSearch(false);
-      if (err.response) {
-        toast.error(err.response.data.message);
-      } else {
-        toast.error(err.message);
-      }
+
+  // 🔒 Immutable source list (saved once)
+  const originalListRef = useRef([]);
+
+  // Save original destinations ONLY once
+  useEffect(() => {
+    if (originalListRef.current.length === 0 && destinations?.length > 0) {
+      originalListRef.current = destinations;
     }
-    
-  }
-  
+  }, [destinations]);
+
+  // Filtering logic
+  useEffect(() => {
+    const source = originalListRef.current;
+
+    const name = filters.name.toLowerCase().trim();
+    const country = filters.country.toLowerCase().trim();
+    const season = filters.best_season.toLowerCase();
+
+    let result = source.filter((d) => {
+      const matchName = name ? d.name?.toLowerCase().includes(name) : true;
+      const matchCountry = country
+        ? d.country?.toLowerCase().includes(country)
+        : true;
+      const matchSeason = season
+        ? d.best_season?.toLowerCase() === season
+        : true;
+
+      return matchName && matchCountry && matchSeason;
+    });
+
+    if (filters.sort === "latest") {
+      result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    } else {
+      result.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    }
+
+    setDestinations(result);
+  }, [filters, setDestinations]);
+
+  const handleChange = (key) => (e) => {
+    setFilters((prev) => ({ ...prev, [key]: e.target.value }));
+  };
 
   return (
     <div className="my-4 bg-[#f5f5f5] rounded-xl px-3 py-4 w-full">
-      {/* Filters */}
       <div className="w-full mb-4">
         <input
-        className="appearance-none  px-3 py-2 border border-gray-300 rounded-md shadow-sm  outline-none focus:ring-blue-500 sm:text-sm sm:w-[48%] w-full mr-2 bg-white"
-        placeholder="Search by name"
-        onChange={(e) => setFilters({ ...filters, name: e.target.value })}
-      />
+          value={filters.name}
+          placeholder="Search by name"
+          className="px-3 py-2 border rounded-md w-full sm:w-[48%] mr-2"
+          onChange={handleChange("name")}
+        />
 
-      <input
-      className="appearance-none bg-white  px-3 py-2 border border-gray-300 rounded-md shadow-sm  outline-none focus:ring-blue-500 sm:text-sm sm:w-[48%] w-full mt-2 sm:mt-0"
-        placeholder="Country"
-        onChange={(e) => setFilters({ ...filters, country: e.target.value })}
-      />
+        <input
+          value={filters.country}
+          placeholder="Country"
+          className="px-3 py-2 border rounded-md w-full sm:w-[48%] mt-2 sm:mt-0"
+          onChange={handleChange("country")}
+        />
       </div>
 
-      <div className="flex flex-wrap items-center  justify-between gap-y-3">
-        <div className="flex gap-y-2 flex-wrap">
-          <select
-      className="p-2 border  border-gray-600 rounded-lg mr-2"
-        onChange={(e) => setFilters({ ...filters, best_season: e.target.value })}
-      >
-        <option value="">Any season</option>
-        <option value="summer">Summer</option>
-        <option value="winter">Winter</option>
-        <option value="spring">Spring</option>
-      </select>
+      <div className="flex gap-2 flex-wrap">
+        <select
+          value={filters.best_season}
+          onChange={handleChange("best_season")}
+          className="p-2 border rounded-lg"
+        >
+          <option value="">Any season</option>
+          <option value="summer">Summer</option>
+          <option value="winter">Winter</option>
+          <option value="spring">Spring</option>
+        </select>
 
-      <select
-      className="p-2 border  border-gray-600 rounded-lg"
-        onChange={(e) => setFilters({ ...filters, sort: e.target.value })}
-      >
-        <option value="latest">Latest</option>
-        <option value="oldest">Oldest</option>
-      </select>
-        </div>
-
-      <button
-      onClick={handleSearch}
-      className="bg-[#163d8c] rounded-xl px-4 py-2 text-white  hover:bg-[#102d67] transition w-36 cursor-pointer">
-         {loadingSearch ? "Searching..." : "Search"}
-      </button>
+        <select
+          value={filters.sort}
+          onChange={handleChange("sort")}
+          className="p-2 border rounded-lg"
+        >
+          <option value="latest">Latest</option>
+          <option value="oldest">Oldest</option>
+        </select>
       </div>
-
     </div>
   );
 };
@@ -380,13 +416,15 @@ const SearchDestination = ({ setDestinations }) => {
 const AllDestinations = ({ destinations }) => {
   return (
     <div className="flex gap-3 flex-wrap">
-      {
-        destinations?.length === 0 && (
-          <p className="pt-7 text-center w-full font-medium text-lg">No Destinations Found!</p>
-        )
-      }
+      {destinations?.length === 0 && (
+        <p className="pt-7 text-center w-full font-medium text-lg">
+          No Destinations Found!
+        </p>
+      )}
       {destinations &&
-        destinations?.map((item , index) => <DestinationCard destination={item} key={index} />)}
+        destinations?.map((item, index) => (
+          <DestinationCard destination={item} key={index} />
+        ))}
     </div>
   );
 };

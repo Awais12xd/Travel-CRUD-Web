@@ -12,74 +12,172 @@ import "swiper/css/bundle";
 
 const TourCard = ({ tour }) => {
   SwiperCore.use([Navigation]);
-  // safe parser: returns an array of strings (image URLs)
-  function parseJsonArrayField(field) {
-    if (!field && field !== "") return []; // null/undefined -> empty
+  
+  function parseImagesField(field) {
+    if (field == null) return [];
 
-    // already an array
-    if (Array.isArray(field)) return field.map(String);
+    // Already an array → normalize to {url, isDefault}
+    if (Array.isArray(field)) {
+      return field
+        .map((item) => {
+          if (typeof item === "string") {
+            return { url: item, isDefault: false };
+          }
+          if (item && typeof item === "object" && item.url) {
+            return {
+              url: String(item.url),
+              isDefault: Boolean(item.isDefault),
+            };
+          }
+          return null;
+        })
+        .filter(Boolean);
+    }
 
-    // only accept strings from here
     if (typeof field !== "string") return [];
 
     const trimmed = field.trim();
-    if (trimmed === "") return [];
+    if (!trimmed) return [];
 
-    // 1) try normal JSON.parse
+    // 1) try direct parse
     try {
       const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return parsed.map(String);
-      if (parsed && typeof parsed === "string") return [String(parsed)];
-    } catch (e) {
-      // ignore parse error and try recovery below
-    }
+      return parseImagesField(parsed);
+    } catch {}
 
-    // 2) try to extract JSON arrays if multiple were concatenated like: "[] []"
-    const arrMatches = [];
-    const re = /\[[^\]]*]/g; // find [...], non-greedy-ish
-    let m;
-    while ((m = re.exec(trimmed)) !== null) {
+    // 2) extract all JSON array chunks like '[...]' (handles concatenated arrays)
+    const matches = trimmed.match(/\[[\s\S]*?\]/g) || [];
+    const results = [];
+    for (const chunk of matches) {
       try {
-        const p = JSON.parse(m[0]);
-        if (Array.isArray(p)) arrMatches.push(...p.map(String));
-      } catch (err) {
-        // skip bad chunk
+        const parsed = JSON.parse(chunk);
+        results.push(...parseImagesField(parsed));
+      } catch {
+        // ignore chunk
       }
     }
-    if (arrMatches.length) {
-      // dedupe and return
-      return Array.from(new Set(arrMatches));
+
+    // 3) dedupe by URL (last occurrence wins)
+    const map = new Map();
+    for (const img of results) {
+      if (img && img.url) map.set(img.url, img);
     }
-
-    // 3) fallback: attempt to split simple comma-separated string of URLs
-    const split = trimmed
-      .split(/\s*,\s*/)
-      .map((s) => s.replace(/^["']|["']$/g, "").trim())
-      .filter(Boolean);
-
-    // dedupe and return
-    return Array.from(new Set(split));
+    return Array.from(map.values());
   }
 
-  const parsedImages = parseJsonArrayField(tour?.images);
-  const [existingImages, setExistingImages] = useState(parsedImages);
+   const getDisplayImages = () => {
+    const imgs = parseImagesField(tour?.images);
+    // sort default to front (stable-ish)
+    return [...imgs].sort((a, b) => Number(b.isDefault) - Number(a.isDefault));
+  };
+
+  const imagesToDisplay = getDisplayImages();
+
+  const [existingImages, setExistingImages] = useState(() =>
+    parseImagesField(tour?.images)
+  );
   const [newImages, setNewImages] = useState([]); 
+
   useEffect(() => {
-    setExistingImages(parseJsonArrayField(tour?.images));
+    setExistingImages(parseImagesField(tour?.images));
     setNewImages([]);
   }, [tour]);
 
-  const removeExistingImage = (url) => {
-    setExistingImages((prev) => prev.filter((u) => u !== url));
+  const makeId = () =>
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+   const setDefaultByCombinedIndex = (combinedIndex) => {
+    const eLen = existingImages.length;
+    if (combinedIndex < 0) return;
+
+    if (combinedIndex < eLen) {
+      setExistingImages((prev) =>
+        prev.map((img, i) => ({ ...img, isDefault: i === combinedIndex }))
+      );
+      setNewImages((prev) => prev.map((n) => ({ ...n, isDefault: false })));
+    } else {
+      const newIndex = combinedIndex - eLen;
+      setNewImages((prev) =>
+        prev.map((img, i) => ({ ...img, isDefault: i === newIndex }))
+      );
+      setExistingImages((prev) => prev.map((e) => ({ ...e, isDefault: false })));
+    }
+  };
+
+   const setDefaultImage = (index) => {
+    setDefaultByCombinedIndex(index);
+  };
+
+const removeExistingImage = (url) => {
+    setExistingImages((prev) => {
+      const updated = prev.filter((img) => img.url !== url);
+
+      if (!updated.some((img) => img.isDefault)) {
+        if (updated.length > 0) {
+          updated[0].isDefault = true;
+        } else if (newImages.length > 0) {
+          setNewImages((prevNew) =>
+            prevNew.map((n, i) => ({ ...n, isDefault: i === 0 }))
+          );
+        }
+      }
+      return updated;
+    });
+  };
+
+  const removeNewImage = (idx) => {
+    setNewImages((prev) => {
+      const removed = prev[idx];
+      const updated = prev.filter((_, i) => i !== idx);
+      if (removed?.isDefault) {
+        if (existingImages.length > 0) {
+          setExistingImages((prevE) =>
+            prevE.map((e, i) => ({ ...e, isDefault: i === 0 }))
+          );
+        } else if (updated.length > 0) {
+          updated[0].isDefault = true;
+        }
+      }
+      return updated;
+    });
+  };
+
+  const handleFileChange = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const haveDefault =
+      existingImages.some((i) => i.isDefault) ||
+      newImages.some((n) => n.isDefault);
+    const newObjs = files.map((file, idx) => ({
+      id: makeId(),
+      file,
+      preview: URL.createObjectURL(file),
+      isDefault: !haveDefault && idx === 0, 
+    }));
+
+    setNewImages((prev) => [...prev, ...newObjs]);
   };
 
   const handleNewFiles = (fileList) => {
-    setNewImages((prev) => [...prev, ...Array.from(fileList)]);
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+
+    const haveDefault =
+      existingImages.some((i) => i.isDefault) ||
+      newImages.some((n) => n.isDefault);
+    const newObjs = files.map((file, idx) => ({
+      id: makeId(),
+      file,
+      preview: URL.createObjectURL(file),
+      isDefault: !haveDefault && idx === 0,
+    }));
+
+    setNewImages((prev) => [...prev, ...newObjs]);
   };
 
-  const removeNewImage = (index) => {
-    setNewImages((prev) => prev.filter((_, i) => i !== index));
-  };
 
   const [openUpdate, setOpenUpdate] = useState(false);
 
@@ -168,6 +266,14 @@ const TourCard = ({ tour }) => {
 
     setLoading(true);
     try {
+
+      const combined = [
+        ...existingImages.map((img) => ({ type: "existing", url: img.url, isDefault: !!img.isDefault })),
+        ...newImages.map((n) => ({ type: "new", preview: n.preview, isDefault: !!n.isDefault })),
+      ];
+      const defaultIndex = combined.findIndex((c) => c.isDefault);
+      const finalDefaultIndex = defaultIndex === -1 ? 0 : defaultIndex;
+
       const formData = new FormData();
 
       formData.append("title", title);
@@ -181,9 +287,11 @@ const TourCard = ({ tour }) => {
 
       formData.append("keepImages", JSON.stringify(existingImages || []));
 
-      newImages && newImages.forEach((file) => {
-        formData.append("images", file);
+      newImages && newImages.forEach((n) => {
+        formData.append("images", n.file);
       });
+
+      formData.append("defaultImageIndex", String(finalDefaultIndex));
 
       const res = await axios.put(
         `${process.env.NEXT_PUBLIC_SERVER_URL}/tour/update/${tour?.id}`,
@@ -236,18 +344,18 @@ const TourCard = ({ tour }) => {
   };
 
   return (
-    <div className="rounded-3xl bg-[#f5f5f5] p-3 flex flex-col w-72 pb-4 hover:shadow-lg transition-shadow duration-300 h-125 justify-between">
+    <div className="rounded-3xl bg-[#f5f5f5] p-3 flex flex-col w-72 pb-4 hover:shadow-lg transition-shadow duration-300 h-fit justify-between">
       <div className="flex flex-col gap-y-3">
         <div className="w-full h-44 overflow-hidden rounded-2xl bg-gray-100">
           {/* Slider */}
           <Swiper navigation={true}>
-            {parsedImages &&
-              parsedImages.map((image) => (
-                <SwiperSlide key={image}>
+            {imagesToDisplay &&
+              imagesToDisplay.map((image , index) => (
+                <SwiperSlide key={image.url + index}>
                   <div
                     className="h-44"
                     style={{
-                      background: `url(${image}) center no-repeat`,
+                      background: `url(${image.url}) center no-repeat`,
                       backgroundSize: "cover",
                     }}
                   ></div>
@@ -510,35 +618,56 @@ const TourCard = ({ tour }) => {
 
               <br />
 
-              {/* Images */}
+             {/* Images */}
               <div>
                 <label>Images</label>
 
                 <div className="flex gap-3 flex-wrap mt-2">
-                  {existingImages.map((url, idx) => (
-                    <div key={url} className="relative">
+                  {existingImages.map((img, idx) => (
+                    <div key={img.url} className="relative">
                       <img
-                        src={url}
-                        alt={`img-${idx}`}
-                        className="w-24 h-24 object-cover rounded"
+                        src={img.url}
+                        className={`w-24 h-24 object-cover rounded ${
+                          img.isDefault ? "ring-4 ring-blue-500" : ""
+                        }`}
                       />
+
                       <button
                         type="button"
-                        onClick={() => removeExistingImage(url)}
-                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 text-xs flex items-center justify-center"
+                        onClick={() => setDefaultImage(idx)}
+                        className="absolute bottom-1 left-1 bg-white text-xs px-2 py-1 rounded shadow"
+                      >
+                        {img.isDefault ? "Default" : "Set Default"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => removeExistingImage(img.url)}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6"
                       >
                         ×
                       </button>
                     </div>
                   ))}
 
-                  {newImages.map((file, idx) => (
-                    <div key={idx} className="relative">
+                  {newImages.map((fileObj, idx) => (
+                    <div key={fileObj.id} className="relative">
                       <img
-                        src={URL.createObjectURL(file)}
+                        src={fileObj.preview}
                         alt={`new-${idx}`}
-                        className="w-24 h-24 object-cover rounded"
+                        className={`w-24 h-24 object-cover rounded ${
+                          fileObj.isDefault ? "ring-4 ring-blue-500" : ""
+                        }`}
                       />
+
+                      <button
+                        type="button"
+                        onClick={() => setDefaultByCombinedIndex(existingImages.length + idx)}
+                        className="absolute bottom-1 left-1 bg-white text-xs px-2 py-1 rounded shadow"
+                      >
+                        {fileObj.isDefault ? "Default" : "Set Default"}
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => removeNewImage(idx)}
@@ -557,17 +686,18 @@ const TourCard = ({ tour }) => {
                   accept="image/*"
                   multiple
                   className="hidden"
-                  onChange={(e) => handleNewFiles(e.target.files)}
+                  onChange={handleFileChange}
                 />
                 <div className="mt-2">
                   <label
                     htmlFor={`newImages-${tour?.id}`}
-                    className="cursor-pointer inline-flex items-center gap-2 text-sm text-gray-700"
+                    className="cursor-pointer inline-flex my-2items-center gap-2 text-sm text-gray-700"
                   >
                     <AiOutlinePlusCircle /> Add images
                   </label>
                 </div>
               </div>
+              <br />
 
               <button
                 type="submit"

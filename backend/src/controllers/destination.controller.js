@@ -4,7 +4,8 @@ import { uploadMultipleToCloudinary } from "../utils/cloudinary.js";
 import { errorHandler } from "../utils/errorHandler.js";
 
 export const createDestination = async (req, res, next) => {
-  const { name, country, region, description, best_season } = req.body;
+  const { name, country, region, description, best_season, defaultImageIndex } =
+    req.body;
 
   if (!name || !country) {
     return res.status(400).json({ error: "Name and country are required" });
@@ -16,7 +17,14 @@ export const createDestination = async (req, res, next) => {
   }
 
   const cloudinaryResults = await uploadMultipleToCloudinary(files);
-  const images = cloudinaryResults.map((result) => result.url);
+  const images = cloudinaryResults.map((result, index) => ({
+    url: result.url,
+    isDefault: Number(defaultImageIndex) === index,
+  }));
+
+  if (!images.some((img) => img.isDefault)) {
+    images[0].isDefault = true;
+  }
 
   try {
     const result = await pool.query(
@@ -48,7 +56,7 @@ export const createDestination = async (req, res, next) => {
   }
 };
 
-export const getDestinations = async (req, res) => {
+export const getDestinations = async (req, res, next) => {
   try {
     const result = await pool.query(
       "SELECT * FROM destinations ORDER BY created_at DESC",
@@ -63,7 +71,7 @@ export const getDestinations = async (req, res) => {
   }
 };
 
-export const getDestinationById = async (req, res) => {
+export const getDestinationById = async (req, res, next) => {
   const { id } = req.params;
   try {
     const result = await pool.query("SELECT * FROM destinations WHERE id=$1", [
@@ -71,28 +79,41 @@ export const getDestinationById = async (req, res) => {
     ]);
     if (!result.rows[0])
       return res.status(404).json({ error: "Destination not found" });
-    res.json(result.rows[0]);
+    res
+      .status(201)
+      .json(
+        new apiResponse(201, "Destination Found successfully!", result.rows[0]),
+      );
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Database error" });
+    return next(new errorHandler("Error while Founding destination", 500));
   }
 };
 
 export const updateDestination = async (req, res, next) => {
-  console.log("req is coming");
-  console.log(req.params);
-  console.log(req.body);
+  console.log(req.body, "this is the body");
   const { id } = req.params;
-  const { name, country, region, keepImages , description, best_season } = req.body;
+  const {
+    name,
+    country,
+    region,
+    keepImages,
+    description,
+    best_season,
+    defaultImageIndex,
+  } = req.body;
 
   let safeImages;
   const files = req.files;
   if (!files || files.length === 0) {
-    console.log("No images to upload on cloudinary")
+    console.log("No images to upload on cloudinary");
+
     safeImages = keepImages;
   } else {
     const cloudinaryResults = await uploadMultipleToCloudinary(files);
-    const images = cloudinaryResults.map((result) => result.url);
+    const images = cloudinaryResults.map((result, index) => ({
+      url: result.url,
+      isDefault: false,
+    }));
     const imagesJSON = JSON.stringify(images);
     const newImages = keepImages + imagesJSON;
     safeImages = JSON.stringify(newImages);
@@ -120,7 +141,6 @@ export const updateDestination = async (req, res, next) => {
         id || null,
       ],
     );
-    console.log(result);
 
     if (!result.rows[0])
       return res.status(404).json({ error: "Destination not found" });
@@ -138,9 +158,8 @@ export const updateDestination = async (req, res, next) => {
   }
 };
 
-
-export const searchDestinations = async (req, res , next) => {
-  console.log("req is coming")
+export const searchDestinations = async (req, res, next) => {
+  console.log("req is coming");
   const { name, country, best_season, sort } = req.query;
 
   let query = `SELECT * FROM destinations WHERE 1=1`;
@@ -162,24 +181,25 @@ export const searchDestinations = async (req, res , next) => {
     values.push(`%${best_season}%`);
   }
 
-  if (sort === 'latest') {
+  if (sort === "latest") {
     query += ` ORDER BY created_at DESC`;
-  } else if (sort === 'oldest') {
+  } else if (sort === "oldest") {
     query += ` ORDER BY created_at ASC`;
   } else {
-    query += ` ORDER BY created_at DESC`; // 
+    query += ` ORDER BY created_at DESC`; //
   }
 
   try {
     const result = await pool.query(query, values);
-    res.status(201).json(new apiResponse(201 , "Destinations Found Successfully!" , result.rows))
-
+    res
+      .status(201)
+      .json(
+        new apiResponse(201, "Destinations Found Successfully!", result.rows),
+      );
   } catch (err) {
     return next(new errorHandler("Error while searching destination", 500));
-
   }
 };
-
 
 export const deleteDestination = async (req, res) => {
   const { id } = req.params;
